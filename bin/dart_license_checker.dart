@@ -6,6 +6,7 @@ import 'package:pana/src/license.dart';
 import 'package:path/path.dart';
 import 'package:barbecue/barbecue.dart';
 import 'package:tint/tint.dart';
+import 'package:yaml/yaml.dart' as yaml;
 
 const possibleLicenseFileNames = [
   // LICENSE
@@ -39,9 +40,44 @@ const possibleLicenseFileNames = [
 ];
 
 void main(List<String> arguments) async {
-  final showTransitiveDependencies =
-      arguments.contains('--show-transitive-dependencies');
+  if (arguments.contains('-h') || arguments.contains('--help')) {
+    print('''Usage: dart_license_checker [options]
+    
+Options:
+-t, --show-transitive-dependencies  Analyze and show transitive dependencies
+    
+-l, --sort-license                  Sort output by License, then dependency name
+    
+-v, --show-version                  Show dependency version from pubspec.lock
+    ''');
+    return;
+  }
+
+  var args = <String>[];
+  for (final option in arguments) {
+    if (option.contains('--')) args.add(option);
+    if (option.startsWith('-')) {
+      option.split('').forEach((element) {
+        switch (element) {
+          case 't':
+            args.add('--show-transitive-dependencies');
+            break;
+          case 'l':
+            args.add('--sort-license');
+            break;
+          case 'v':
+            args.add('--show-version');
+            break;
+        }
+      });
+    }
+  }
+
+  final showTransitiveDependencies = args.contains('--show-transitive-dependencies');
+  final showVersion = args.contains('--show-version');
+  final sortLicense = args.contains('--sort-license');
   final pubspecFile = File('pubspec.yaml');
+  final pubspecLockFile = File('pubspec.lock');
 
   if (!pubspecFile.existsSync()) {
     stderr.writeln('pubspec.yaml file not found in current directory'.red());
@@ -49,6 +85,7 @@ void main(List<String> arguments) async {
   }
 
   final pubspec = Pubspec.parseYaml(pubspecFile.readAsStringSync());
+  final pubspecLock = Map<String, dynamic>.from(yaml.loadYaml(pubspecLockFile.readAsStringSync()) as Map);
 
   final packageConfigFile = File('.dart_tool/package_config.json');
 
@@ -97,14 +134,23 @@ void main(List<String> arguments) async {
     if (license != null) {
       rows.add(Row(cells: [
         Cell(name, style: CellStyle(alignment: TextAlignment.TopRight)),
+        if (showVersion) Cell(pubspecLock['packages'][name]?['version'] ?? ''),
         Cell(formatLicenseName(license)),
       ]));
     } else {
       rows.add(Row(cells: [
         Cell(name, style: CellStyle(alignment: TextAlignment.TopRight)),
+        if (showVersion) Cell(pubspecLock['packages'][name]?['version'] ?? ''),
         Cell('No license file'.grey()),
       ]));
     }
+  }
+  if (sortLicense) {
+    rows.sort((a, b) {
+      var aa = '${a.cells.last.content.toLowerCase().strip()}${a.cells.first.content}';
+      var bb = '${b.cells.last.content.toLowerCase().strip()}${b.cells.first.content}';
+      return aa.compareTo(bb);
+    });
   }
   print(
     Table(
@@ -117,6 +163,7 @@ void main(List<String> arguments) async {
                 'Package Name  '.bold(),
                 style: CellStyle(alignment: TextAlignment.TopRight),
               ),
+              if (showVersion) Cell('Version'.bold()),
               Cell('License'.bold()),
             ],
             cellStyle: CellStyle(borderBottom: true),
